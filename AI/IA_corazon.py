@@ -50,7 +50,8 @@ def buscar_en_base_datos(pregunta_usuario):
     
     for palabra in palabras_clave[:4]: 
         try:
-            res_ed = supabase.table("buildings").select("*").ilike("name", f"%{palabra}%").limit(3).execute()
+            # MAGIA 1: ¡Ampliamos el límite a 15 para que quepan tus listas, nya~!
+            res_ed = supabase.table("buildings").select("*").ilike("name", f"%{palabra}%").limit(15).execute()
             for ed in res_ed.data:
                 llave_unica = ed.get('id', ed.get('name')) 
                 edificios_dict[llave_unica] = ed 
@@ -94,13 +95,13 @@ def buscar_en_base_datos(pregunta_usuario):
         except Exception as e:
             print(f"Error API: {e}")
             
-    return list(edificios_dict.values())[:3], list(textos_web_dict.values())[:8], publicaciones_api[:5]
+    # MAGIA 2: Devolvemos hasta 15 edificios al contexto de la IA
+    return list(edificios_dict.values())[:15], list(textos_web_dict.values())[:8], publicaciones_api[:5]
 
 # --- 3. LÓGICA DE GENERACIÓN AISLADA ---
-def generar_respuesta_ia(pregunta_final: str) -> str:
+def generar_respuesta_ia(pregunta_final: str):
     edificios_contexto, web_contexto, api_contexto = buscar_en_base_datos(pregunta_final)
     
-    # El historial lo dejamos vacío por ahora, la app móvil no guarda el estado igual que la web
     historial = "" 
 
     prompt_final = f"""
@@ -111,7 +112,7 @@ def generar_respuesta_ia(pregunta_final: str) -> str:
     2. PARA PUBLICACIONES Y GUÍAS: Prioriza rigurosamente la información del "CONTEXTO DE LA API DE PUBLICACIONES".
     3. PARA PREGUNTAS GENERALES: Usa el "CONTEXTO DE LA WEB OFICIAL".
     4. LA REGLA DEL SILENCIO: NUNCA uses frases como "según el contexto proporcionado", "en la base de datos", "en la API" o "en el historial". Habla con naturalidad, como si supieras la información de memoria.
-    5. PROHIBICIÓN DE ALUCINAR: Si la información no está en los contextos, tienes ESTRICTAMENTE PROHIBIDO inventar o aportar datos externos. Debes decir EXACTAMENTE: "Lo siento mucho, pero no tengo esa información en mis registros de Globus Vermell." y TERMINAR TU RESPUESTA AHÍ MISMO. NO añadas "Sin embargo..." ni ninguna otra frase de relleno.
+    5. LISTAS Y CONOCIMIENTO EXTERNO: Si el usuario pide listas generales de arquitectura (ej. "10 masías" o "10 edificios del GATCPAC") y no hay suficientes en la base de datos, usa tu conocimiento experto para completar la lista. Aclara sutilmente cuáles pertenecen a los registros de Globus Vermell y cuáles son otros ejemplos notables.
     
     CADENA DE PENSAMIENTO (Instrucciones internas de razonamiento):
     - Analiza en silencio qué tipo de pregunta es (edificio, publicación o general).
@@ -139,16 +140,22 @@ def generar_respuesta_ia(pregunta_final: str) -> str:
             model="command-r7b-12-2024",
             temperature=0.1
         )
-        return respuesta.text
+        # MAGIA 3: Devolvemos el texto Y la lista de edificios pura
+        return respuesta.text, edificios_contexto
     except Exception as e:
-        return f"Error de conexión con la API de Cohere. Detalles: {e}"
+        return f"Error de conexión con la API de Cohere. Detalles: {e}", []
 
 # --- 4. LA PUERTA DE ENTRADA (ENDPOINT) ---
 @app.post("/api/chat")
 async def chatear(peticion: PeticionUsuario):
-    # Cuando Flutter envíe la pregunta, FastAPI ejecutará esto
     try:
-        texto_ia = generar_respuesta_ia(peticion.pregunta)
-        return {"respuesta": texto_ia}
+        # Recibimos las dos cosas de la función de arriba
+        texto_ia, lista_edificios = generar_respuesta_ia(peticion.pregunta)
+        
+        # MAGIA 4: Le enviamos a Flutter un paquetito con el texto y los datos
+        return {
+            "respuesta": texto_ia,
+            "edificios_relacionados": lista_edificios
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
