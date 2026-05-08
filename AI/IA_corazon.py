@@ -33,7 +33,9 @@ def buscar_en_base_datos(pregunta_usuario):
     pregunta_limpia = pregunta_usuario.replace("?","").replace("¿","").replace(",","").lower()
     
     sinonimos_publicaciones = ["libro", "guia", "triptico", "catalogo", "bibliografia", "isbn", "editorial", "edicion", "paginas", "deposito legal"]
-    palabras_prohibidas = ["globus", "vermell", "hablame", "sobre", "dime", "como", "para", "este", "esta", "quiero", "saber"]
+    
+    # MAGIA 1: Quitamos "globus" y "vermell" para que pueda buscar su propio nombre, nya~
+    palabras_prohibidas = ["hablame", "sobre", "dime", "como", "para", "este", "esta", "quiero", "saber", "acerca", "que", "es"]
     palabras_clave = [p.lower() for p in pregunta_limpia.split() if len(p) > 3 and p.lower() not in palabras_prohibidas]
     
     es_busqueda_publicacion = any(x in pregunta_limpia for x in ["publicacion", "publicaciones", "publicacions", "libros", "que han hecho"])
@@ -50,7 +52,7 @@ def buscar_en_base_datos(pregunta_usuario):
     
     for palabra in palabras_clave[:4]: 
         try:
-            # MAGIA 1: ¡Ampliamos el límite a 15 para que quepan tus listas, nya~!
+            # Seguimos con el límite a 15 para tus listas largas, uwu
             res_ed = supabase.table("buildings").select("*").ilike("name", f"%{palabra}%").limit(15).execute()
             for ed in res_ed.data:
                 llave_unica = ed.get('id', ed.get('name')) 
@@ -95,15 +97,23 @@ def buscar_en_base_datos(pregunta_usuario):
         except Exception as e:
             print(f"Error API: {e}")
             
-    # MAGIA 2: Devolvemos hasta 15 edificios al contexto de la IA
     return list(edificios_dict.values())[:15], list(textos_web_dict.values())[:8], publicaciones_api[:5]
 
 # --- 3. LÓGICA DE GENERACIÓN AISLADA ---
 def generar_respuesta_ia(pregunta_final: str):
+    
+    # 🌟 MAGIA HARDCODED: Si preguntan por el nombre, damos la respuesta directa y poética, nya~!
+    pregunta_min = pregunta_final.lower()
+    if "nombre" in pregunta_min and "globus" in pregunta_min:
+        respuesta_hardcoded = "“Le ballon rouge” (El globo rojo/Globus Vermell) es la historia, en la ciudad de París de los años 50, de un niño y un globo rojo, los cuales, tras un primer encuentro fortuito, se vuelven compañeros inseparables y la envidia de grandes y pequeños. La película es una alegoría y clara reivindicación de valores como la libertad, la amistad, la ilusión y la imaginación."
+        # Devolvemos el texto y una lista vacía para los edificios
+        return respuesta_hardcoded, []
+
     edificios_contexto, web_contexto, api_contexto = buscar_en_base_datos(pregunta_final)
     
     historial = "" 
 
+    # MAGIA 2: Prompt súper estricto y de máximo 2 párrafos
     prompt_final = f"""
     Eres el asistente oficial de "Globus Vermell", un experto en arquitectura y divulgación.
     
@@ -111,13 +121,15 @@ def generar_respuesta_ia(pregunta_final: str):
     1. PARA EDIFICIOS: Tu fuente de verdad es el "CONTEXTO DE BASE DE DATOS".
     2. PARA PUBLICACIONES Y GUÍAS: Prioriza rigurosamente la información del "CONTEXTO DE LA API DE PUBLICACIONES".
     3. PARA PREGUNTAS GENERALES: Usa el "CONTEXTO DE LA WEB OFICIAL".
-    4. LA REGLA DEL SILENCIO: NUNCA uses frases como "según el contexto proporcionado", "en la base de datos", "en la API" o "en el historial". Habla con naturalidad, como si supieras la información de memoria.
-    5. LISTAS Y CONOCIMIENTO EXTERNO: Si el usuario pide listas generales de arquitectura (ej. "10 masías" o "10 edificios del GATCPAC") y no hay suficientes en la base de datos, usa tu conocimiento experto para completar la lista. Aclara sutilmente cuáles pertenecen a los registros de Globus Vermell y cuáles son otros ejemplos notables.
+    4. LA REGLA DEL SILENCIO (ANTI-ALUCINACIONES): Si la información exacta no está en los contextos, NO la inventes. Di: "Lo siento, pero no tengo esa información en mis registros de Globus Vermell."
+    5. LISTAS Y CONOCIMIENTO EXTERNO: SOLO si el usuario pide listas (ej. "10 masías") y faltan datos en la base, puedes usar conocimiento externo, aclarando qué es del catálogo y qué no.
+    6. BREVEDAD EXTREMA: Tus respuestas DEBEN ser concisas. Máximo absoluto de 2 párrafos cortos. Ve directo al grano, sin rodeos ni introducciones largas.
     
     CADENA DE PENSAMIENTO (Instrucciones internas de razonamiento):
-    - Analiza en silencio qué tipo de pregunta es (edificio, publicación o general).
-    - Revisa TODOS los contextos proporcionados abajo.
-    - IMPORTANTE: NO escribas "Paso 1", "Paso 2", ni muestres tus pensamientos al usuario. Tu respuesta debe ser ÚNICAMENTE el resultado final, conversacional.
+    - Analiza en silencio qué tipo de pregunta es.
+    - Extrae la respuesta SOLO de los contextos proporcionados abajo.
+    - Redacta la respuesta final en un máximo de 2 párrafos.
+    - NO muestres tus pensamientos al usuario.
     
     --- CONTEXTO DE BASE DE DATOS (EDIFICIOS FILTRADOS) ---
     {edificios_contexto}
@@ -140,7 +152,7 @@ def generar_respuesta_ia(pregunta_final: str):
             model="command-r7b-12-2024",
             temperature=0.1
         )
-        # MAGIA 3: Devolvemos el texto Y la lista de edificios pura
+        # Devolvemos el texto Y la lista de edificios pura
         return respuesta.text, edificios_contexto
     except Exception as e:
         return f"Error de conexión con la API de Cohere. Detalles: {e}", []
@@ -149,10 +161,9 @@ def generar_respuesta_ia(pregunta_final: str):
 @app.post("/api/chat")
 async def chatear(peticion: PeticionUsuario):
     try:
-        # Recibimos las dos cosas de la función de arriba
         texto_ia, lista_edificios = generar_respuesta_ia(peticion.pregunta)
         
-        # MAGIA 4: Le enviamos a Flutter un paquetito con el texto y los datos
+        # Le enviamos a Flutter un paquetito con el texto y los datos
         return {
             "respuesta": texto_ia,
             "edificios_relacionados": lista_edificios
