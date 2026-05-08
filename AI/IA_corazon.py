@@ -34,7 +34,6 @@ def buscar_en_base_datos(pregunta_usuario):
     
     sinonimos_publicaciones = ["libro", "guia", "triptico", "catalogo", "bibliografia", "isbn", "editorial", "edicion", "paginas", "deposito legal"]
     
-    # MAGIA 1: Quitamos "globus" y "vermell" para que pueda buscar su propio nombre, nya~
     palabras_prohibidas = ["hablame", "sobre", "dime", "como", "para", "este", "esta", "quiero", "saber", "acerca", "que", "es"]
     palabras_clave = [p.lower() for p in pregunta_limpia.split() if len(p) > 3 and p.lower() not in palabras_prohibidas]
     
@@ -52,7 +51,6 @@ def buscar_en_base_datos(pregunta_usuario):
     
     for palabra in palabras_clave[:4]: 
         try:
-            # Seguimos con el límite a 15 para tus listas largas, uwu
             res_ed = supabase.table("buildings").select("*").ilike("name", f"%{palabra}%").limit(15).execute()
             for ed in res_ed.data:
                 llave_unica = ed.get('id', ed.get('name')) 
@@ -102,7 +100,6 @@ def buscar_en_base_datos(pregunta_usuario):
 # --- 3. LÓGICA DE GENERACIÓN AISLADA ---
 def generar_respuesta_ia(pregunta_final: str):
     
-    # 🌟 MAGIA HARDCODED: Si preguntan por el nombre, damos la respuesta directa y poética, nya~!
     pregunta_min = pregunta_final.lower()
     if "nombre" in pregunta_min and "globus" in pregunta_min:
         respuesta_hardcoded = "“Le ballon rouge” (El globo rojo/Globus Vermell) es la historia, en la ciudad de París de los años 50, de un niño y un globo rojo, los cuales, tras un primer encuentro fortuito, se vuelven compañeros inseparables y la envidia de grandes y pequeños. La película es una alegoría y clara reivindicación de valores como la libertad, la amistad, la ilusión y la imaginación."
