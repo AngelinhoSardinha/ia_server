@@ -1,0 +1,141 @@
+@startuml
+title Globus Vermell — Diagrama de clases
+
+skinparam backgroundColor transparent
+skinparam defaultFontName monospaced
+skinparam ClassBorderColor #888780
+skinparam ClassBackgroundColor #F1EFE8
+skinparam ClassFontColor #2C2C2A
+skinparam ClassHeaderBackgroundColor #D3D1C7
+skinparam ArrowColor #5F5E5A
+skinparam NoteBackgroundColor #EEEDFE
+skinparam NoteBorderColor #AFA9EC
+
+class FastAPI_App {
+  + title: str = "Globus Vermell API"
+  + description: str
+  + allow_origins: list = ["*"]
+  --
+  + chatear(peticion: PeticionUsuario): dict
+}
+note right of FastAPI_App
+  Servidor FastAPI hospedado en Render
+  Middleware CORS activo para Flutter
+end note
+
+class PeticionUsuario {
+  + pregunta: str
+}
+note right of PeticionUsuario
+  Modelo Pydantic — valida
+  que llegue el campo pregunta
+end note
+
+class RespuestaAPI {
+  + respuesta: str
+  + edificios_relacionados: list
+}
+
+class GeneradorRespuestaIA {
+  - HARDCODED_TRIGGERS: list
+  - PROMPT_TEMPLATE: str
+  --
+  + generar_respuesta_ia(pregunta: str): tuple[str, list]
+  - _es_pregunta_hardcoded(pregunta: str): bool
+  - _construir_prompt(pregunta: str,\n  edificios: list,\n  publicaciones: list,\n  web: list): str
+}
+note right of GeneradorRespuestaIA
+  Reglas anti-alucinación en prompt:
+  - Prioridad BD > API > Web
+  - Máx. 2 párrafos en respuesta
+  - Si no hay datos → no inventa
+  - Puede usar conocimiento externo
+    solo para listas incompletas
+end note
+
+class MotorBusqueda {
+  - PALABRAS_PROHIBIDAS: list
+  - SINONIMOS_PUBLICACIONES: list
+  - MAX_PALABRAS_CLAVE: int = 4
+  - MAX_PAGINAS_API: int = 10
+  --
+  + buscar_en_base_datos(pregunta: str): tuple[list, list, list]
+  - _limpiar_pregunta(pregunta: str): str
+  - _extraer_palabras_clave(texto: str): list[str]
+  - _es_busqueda_publicacion(texto: str): bool
+  - _buscar_edificios(keyword: str): list[Building]
+  - _buscar_web(raiz: str): list[InfoWeb]
+  - _buscar_publicaciones(keyword: str): list[Publicacion]
+  - _deduplicar_edificios(resultados: list): dict
+  - _deduplicar_web(resultados: list): dict
+}
+
+class SupabaseClient {
+  + url: str
+  + key: str
+  --
+  + table(name: str): QueryBuilder
+}
+
+class CohereClient {
+  + api_key: str
+  + model: str = "command-r7b-12-2024"
+  + temperature: float = 0.1
+  --
+  + chat(message: str, model: str,\n  temperature: float): CohereResponse
+}
+
+class CohereResponse {
+  + text: str
+}
+
+class APIPublicaciones {
+  + base_url: str
+  + timeout: int = 5
+  --
+  + list(page: int): dict
+  - _parsear_publicaciones(datos: dict): list
+}
+
+entity Building {
+  + id: str
+  + name: str
+  + [campos adicionales BD]
+}
+
+entity InfoWeb {
+  + url: str
+  + contenido: str
+}
+
+entity Publicacion {
+  + [campos dinámicos JSON]
+}
+
+class DotenvConfig {
+  + SUPABASE_URL: str
+  + SUPABASE_KEY: str
+  + MI_KEY: str
+}
+
+FastAPI_App "1" --> "1" PeticionUsuario : recibe
+FastAPI_App "1" --> "1" RespuestaAPI : retorna
+FastAPI_App "1" --> "1" GeneradorRespuestaIA : delega en
+
+GeneradorRespuestaIA "1" --> "1" MotorBusqueda : usa para contexto
+GeneradorRespuestaIA "1" --> "1" CohereClient : genera respuesta IA
+GeneradorRespuestaIA ..> RespuestaAPI : construye
+
+CohereClient ..> CohereResponse : retorna
+
+MotorBusqueda "1" --> "1" SupabaseClient : consulta tablas
+MotorBusqueda "1" --> "1" APIPublicaciones : paginación GET
+
+SupabaseClient ..> Building : tabla buildings
+SupabaseClient ..> InfoWeb : tabla info_web
+APIPublicaciones ..> Publicacion : /publications/api/list
+
+DotenvConfig ..> SupabaseClient : inicializa con
+DotenvConfig ..> CohereClient : inicializa con
+
+@enduml

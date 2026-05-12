@@ -1,0 +1,118 @@
+@startuml
+title Globus Vermell — Diagrama de flujo
+
+skinparam backgroundColor transparent
+skinparam defaultFontName monospaced
+skinparam ArrowColor #5F5E5A
+skinparam ActivityBorderColor #888780
+skinparam ActivityBackgroundColor #F1EFE8
+skinparam ActivityFontColor #2C2C2A
+skinparam ActivityDiamondBackgroundColor #D3D1C7
+skinparam ActivityDiamondBorderColor #888780
+skinparam PartitionBorderColor #B4B2A9
+skinparam PartitionBackgroundColor transparent
+skinparam NoteBackgroundColor #EEEDFE
+skinparam NoteBorderColor #AFA9EC
+
+|Flutter App|
+start
+:Usuario escribe pregunta\nsobre Globus Vermell;
+
+|Render — FastAPI (IA_corazon.py)|
+:POST /api/chat
+{ "pregunta": "..." }]
+:Validar PeticionUsuario\n(Pydantic);
+
+:Llamar a generar_respuesta_ia(pregunta);
+
+if (¿"nombre" AND "globus"\nen la pregunta?) then (sí)
+  :Retornar descripción\nhardcoded de la película\n"Le ballon rouge";
+  note right
+    Sin consultar BD
+    ni llamar a Cohere
+  end note
+else (no)
+  |Motor de búsqueda — buscar_en_base_datos()|
+  :Limpiar pregunta\n(quitar ?, ¿, comas → lowercase);
+  :Detectar si es búsqueda\nde publicaciones/guías/libros;
+  :Extraer palabras clave\n(len > 3, sin stopwords);
+
+  if (¿Es búsqueda de publicaciones?) then (sí)
+    :Añadir términos extra:\n"libro", "guia", "isbn", "edicion";
+  else (no)
+  endif
+
+  if (¿Sin palabras clave?) then (sí)
+    :Usar fallback:\n["asociación", "arquitectura"];
+  else (no)
+  endif
+
+  partition "Bucle por palabras clave (máx. 4)" {
+    fork
+      |Supabase — tabla buildings|
+      :SELECT * FROM buildings
+      WHERE name ILIKE '%keyword%'
+      LIMIT 15;
+      :Deduplicar por id/name\nen edificios_dict;
+    fork again
+      |Supabase — tabla info_web|
+      :SELECT url, contenido
+      FROM info_web
+      WHERE contenido ILIKE '%raiz%'
+      LIMIT 8;
+      :Deduplicar por url\nen textos_web_dict;
+    fork again
+      |API Publicaciones externa|
+      :GET /publications/api/list
+      ?page=N (hasta 10 páginas);
+      if (¿status != 200\no sin resultados?) then (sí)
+        :break;
+      else (no)
+        if (¿keyword es término\ngeneral de publicación?) then (sí)
+          :Añadir todas las pubs\nde esa página;
+        else (no)
+          :Añadir pubs que\ncontienen keyword;
+        endif
+        :Siguiente página;
+      endif
+    end fork
+  }
+
+  |Motor de búsqueda — buscar_en_base_datos()|
+  :Consolidar resultados:
+  - edificios_contexto[:15]
+  - web_contexto[:8]
+  - publicaciones_api[:5];
+  :Retornar tuple\n(edificios, web, publicaciones);
+
+  |Render — FastAPI (IA_corazon.py)|
+  :Construir prompt final con:
+  - Reglas de oro (anti-alucinación)
+  - Cadena de pensamiento interna
+  - Contexto BD edificios
+  - Contexto API publicaciones
+  - Contexto web oficial
+  - Historial (vacío actualmente)
+  - Pregunta del usuario;
+
+  |Cohere API|
+  :co.chat(
+    model="command-r7b-12-2024"
+    temperature=0.1
+  );
+  :Retornar respuesta\ngenerada (máx. 2 párrafos);
+endif
+
+|Render — FastAPI (IA_corazon.py)|
+:Empaquetar respuesta JSON:
+{
+  "respuesta": texto_ia,
+  "edificios_relacionados": lista
+}]
+
+|Flutter App|
+:Mostrar respuesta de texto\nal usuario;
+:Renderizar tarjetas\nde edificios relacionados;
+stop
+
+@enduml
